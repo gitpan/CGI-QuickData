@@ -1,6 +1,6 @@
 #!/usr/bin/perl -Tw
 
-# $Id: contacts,v 1.18 1999/11/03 23:18:52 root Exp root $
+# $Id: contacts,v 1.19 1999/11/04 22:25:45 root Exp root $
 
 # Copyright (c) Mark Summerfield 1999. All Rights Reserved.
 # May be used/distributed under the GPL.
@@ -8,7 +8,7 @@
 # WARNING - this program is provided as an example of QuickForm and QuickData
 # use and not as an example of production quality CGI code - it is not secure. 
 
-# TODO validation - field & record
+# TODO Proper validation - field & record
 
 # The table this example is based on was created thus:
 #
@@ -43,18 +43,20 @@ $DB_HANDLE = DBI->connect( "DBI:XBase:/root/web/db/contacts" ) or die $DBI::errs
 
 show_data(
 #    -SHOW_SQL           => 1,
+    -HEADER             => header . 
+                           start_html( 
+                                '-title' => 'Contacts',
+                                -BGCOLOR => '#FFCAFF',
+                                ) .
+                           h3( 'Contacts - <:ACTION:>' ),
+    -FOOTER             => hr . end_html,
     -INITIAL_ACTION     => 'list',
-    -FORM_BG_COLOUR     => '#FFCAFF',
-    -DEL_HEAD_COLOUR    => '#E6BEFF',
-    -DEL_FIELD_COLOUR   => '#FFE0E0',
-    -DEL_VALUE_COLOUR   => '#FFA9A9',
-    -LIST_HEAD_COLOUR   => '#E6BEFF',
-    -LIST_BAND1_COLOUR  => '#FAFAFA',
-    -LIST_BAND2_COLOUR  => '#EDEDED',
     -TITLE              => 'Contacts',
     -TABLE              => 'contacts',
     -KEYFIELD           => 'ID',
     -INITIAL_ORDERBY    => 'ID',
+    -SIZE               => 25,
+    -MAXLEN             => 50,
     -FIELDS             => [ 
             {
                 -DB_NAME   => 'ID',
@@ -72,16 +74,12 @@ show_data(
                 -DB_HTML   => undef,
                 -LABEL     => 'Forename',
                 -REQUIRED  => 1,
-                -size      => 25,
-                -maxlen    => 50,
             },
             {
                 -DB_NAME   => 'SURNAME',
                 -DB_HTML   => 'b',
                 -LABEL     => 'Surname',
                 -REQUIRED  => 1,
-                -size      => 25,
-                -maxlen    => 50,
             },
             {
                 -DB_NAME   => 'HOMETEL',
@@ -127,7 +125,6 @@ show_data(
                         ( ( ( $_ eq '' ) or ( /^[^@]+@[^@]+\.\w+$/o ) ), 
                         "<I>Should be like <TT>name\@site.com</TT></I>" ) ;
                     },
-                -size      => 25,
                 -maxlen    => 60,
             },
             {
@@ -142,7 +139,6 @@ show_data(
                         ( ( ( $_ eq '' ) or ( /.+\..+/o ) ),
                         "<I>Should be like <TT>www.site.com</TT></I>" ) ;
                     },
-                -size      => 25,
                 -maxlen    => 60,
             },
             {

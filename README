@@ -12,8 +12,6 @@ for the time being.
 =head1 DESCRIPTION
 
 To follow. Very similar to QuickForm - builds upon it, but with more options.
-Some QuickForm options do not get passed through to QuickForm - this will be
-done in time.
 
 =head1 BUGS
 

@@ -1,3 +1,13 @@
+1999/11/04
+
+Corrected bug in WHERE clause handling when reordering the List view.
+Corrected bug that showed a param when going to the Find view.
+Added -HEADER and -FOOTER options.
+Now pass through -LANGUAGE, -SIZE, -MAXLENGTH, -ROWS and -COLUMNS to
+QuickForm's show_form.
+Minor fixes/improvements.
+
+
 1999/11/03
 
 Created. 
