@@ -1,12 +1,13 @@
 #!/usr/bin/perl -Tw
 
-# $Id: contacts,v 1.19 1999/11/04 22:25:45 root Exp root $
+# $Id: contacts,v 1.20 1999/11/07 14:12:32 root Exp root $
 
 # Copyright (c) Mark Summerfield 1999. All Rights Reserved.
 # May be used/distributed under the GPL.
 
 # WARNING - this program is provided as an example of QuickForm and QuickData
-# use and not as an example of production quality CGI code - it is not secure. 
+# use and not as an example of production quality CGI code - it may not be
+# secure. 
 
 # TODO Proper validation - field & record
 
@@ -35,7 +36,7 @@ use CGI qw( :standard :html3 ) ;
 use CGI::QuickData ;
 
 use vars qw( $VERSION ) ;
-$VERSION     = '1.00' ;
+$VERSION     = '1.01' ;
 
 # The connect string must be in code, not passed via 'hidden' fields since it
 # could contain username/password.
@@ -57,6 +58,8 @@ show_data(
     -INITIAL_ORDERBY    => 'ID',
     -SIZE               => 25,
     -MAXLEN             => 50,
+    -ROWS               =>  3,
+    -COLUMNS            => 50,
     -FIELDS             => [ 
             {
                 -DB_NAME   => 'ID',
@@ -125,6 +128,7 @@ show_data(
                         ( ( ( $_ eq '' ) or ( /^[^@]+@[^@]+\.\w+$/o ) ), 
                         "<I>Should be like <TT>name\@site.com</TT></I>" ) ;
                     },
+                -size      => 50,
                 -maxlen    => 60,
             },
             {
@@ -139,6 +143,7 @@ show_data(
                         ( ( ( $_ eq '' ) or ( /.+\..+/o ) ),
                         "<I>Should be like <TT>www.site.com</TT></I>" ) ;
                     },
+                -size      => 50,
                 -maxlen    => 60,
             },
             {
@@ -146,8 +151,6 @@ show_data(
                 -DB_HTML   => undef,
                 -LABEL     => 'Address',
                 -TYPE      => 'textarea',
-                -rows      => 3,
-                -columns   => 50,
             },
             {
                 -DB_NAME   => 'POSTCODE',
@@ -169,8 +172,6 @@ show_data(
                 -DB_HTML   => undef,
                 -LABEL     => 'Notes',
                 -TYPE      => 'textarea',
-                -rows      => 3,
-                -columns   => 50,
             },
         ], 
 ) ;

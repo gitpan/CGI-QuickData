@@ -1,6 +1,6 @@
 package CGI::QuickData ; # Documented at the __END__.
 
-# $Id: QuickData.pm,v 1.7 1999/11/04 22:21:01 root Exp root $
+# $Id: QuickData.pm,v 1.9 1999/11/28 15:44:27 root Exp root $
 
 # TODO Make provision for generated (auto) values by adding options and
 #      supporting code: 
@@ -9,43 +9,79 @@ package CGI::QuickData ; # Documented at the __END__.
 #       -ALLOW_INSERT   => 1, # e.g. false for generated keyfields
 # TODO Test with mySQL and Postgresql
 # TODO French & German message and label translations.
-# TODO Don't quote the keyfield if its -DB_QUOTE is false.
 #
 # TODO Document!
 #
 # TODO lookups (drop down lists) for key X val tables (equiv Oracle LOVs)
-# TODO drilldown support Table=tablename&Keyfield=fieldname&Orderby=fieldname&ID=value
+# TODO drilldown support:
+# drillTable=tablename&drillKeyfield=fieldname&drillOrderby=fieldname&drillID=value
 
 require 5.004 ;
 
 use strict ;
 
 use CGI qw( :standard :html3 ) ;
-use CGI::QuickForm qw( show_form colour ) ;
+use CGI::QuickForm ;
 #use CGI::Carp ;
 use DBI ;
 use HTML::Entities ;
 use URI::Escape ;
 
-use vars qw( $VERSION @ISA @EXPORT $DB_HANDLE ) ;
-$VERSION   = '0.02' ;
+use vars qw( $VERSION @ISA @EXPORT $DB_HANDLE $QD_TABLENAME $ACTION ) ;
+$VERSION   = '0.10' ;
 
 use Exporter() ;
 
-@ISA       = qw( Exporter ) ;
+@ISA    = qw( Exporter ) ;
 
-@EXPORT    = qw( show_data $DB_HANDLE ) ;
+@EXPORT = qw( show_data show_tables $DB_HANDLE $QD_TABLENAME ) ;
 
+BEGIN {
+    $ACTION       = '.qfdb' ;
+    $QD_TABLENAME = "${ACTION}_Tablename" ;
+}
 
-my $ACTION = '.qfdb' ;
 my( $ADD, $DELETE, $EDIT, $FIND, $LIST, $ORDERBY, $ORIGINALID, $REMOVE, 
     $SEARCH, $UPDATE, $WHERE ) = 
     qw( Add Delete Edit Find List OrderBy OriginalID Remove Search Update Where ) ;
 my( $COMPARISON, $CONNECTOR, $VALUE ) = qw( comparison connector value ) ;
-my $URL    = url() ;
+my $URL = url() ;
 
 my( $Action, $ID ) ;
 my %Record ;
+
+
+sub show_tables {
+    my %arg = (
+        -HEADER      => undef, 
+        -FOOTER      => hr . end_html,
+        -TITLE       => 'Show Tables',
+        -LISTFIELDS  => 1,
+        -TABLENAMES  => undef,
+        -TABLEFIELDS => undef,
+        @_,
+        ) ;
+
+    $arg{-HEADER} = header . start_html( $arg{-TITLE} ) . h3( $arg{-TITLE} )
+    unless $arg{-HEADER} ;
+
+    die 'Must specify -TABLENAMES'  unless $arg{-TABLENAMES} ;
+    die 'Must specify -TABLEFIELDS' unless $arg{-TABLEFIELDS} ;
+
+    print $arg{-HEADER}, 
+          ul( map { 
+                qq{<LI><A HREF="$URL?$QD_TABLENAME=$_">} .
+                qq{$_</A>} .
+                ( $arg{-LISTFIELDS} ? 
+                    qq{<SPAN style="color:gray"> ( } . 
+                    ( join ", ", map { 
+                        $_->{-DB_NAME} } @{$arg{-TABLEFIELDS}{$_}} ) . " )</SPAN>" 
+                              : '' 
+                )
+               } 
+               sort @{$arg{-TABLENAMES}} ), 
+               $arg{-FOOTER} ;
+}
 
 
 sub show_data {
@@ -65,23 +101,26 @@ sub show_data {
         -ROWS               => undef,
         -COLUMNS            => undef,
         -INITIAL_ACTION     => 'find', # or 'list'
-        -FORM_BG_COLOUR     => '#FFCAFF', # or named colour, e.g. 'BLUE'
+        # STYLEs can be things like "font-family:Helvetica;color:green", etc.
+        -ACTION_STYLE       => 'color:BLUE',
+        -ERR_STYLE          => 'color:GREEN',
+        -FAIL_STYLE         => 'color:RED',
+        -SQL_STYLE          => 'color:DARKBLUE',
+        # Table support for styles seems less common so we just have colours
+        -LIST_HEAD_COLOUR   => '#E6BEFF',
         -DEL_HEAD_COLOUR    => '#E6BEFF',
         -DEL_FIELD_COLOUR   => '#FFE0E0',
         -DEL_VALUE_COLOUR   => '#FFA9A9',
-        -LIST_HEAD_COLOUR   => '#E6BEFF',
         -LIST_BAND1_COLOUR  => '#FAFAFA',
         -LIST_BAND2_COLOUR  => '#EDEDED',
-        -ACTION_COLOUR      => 'BLUE',
-        -ERR_COLOUR         => 'GREEN',
-        -FAIL_COLOUR        => 'RED',
-        -SQL_COLOUR         => 'DARKBLUE',
         -TABLE              => undef,
         -KEYFIELD           => undef,
         -INITIAL_ORDERBY    => undef,
         -FIELDS             => undef,
         @_,
     ) ;
+
+    $Record{-TABLE} = param( $QD_TABLENAME ) if param( $QD_TABLENAME ) ;
 
     die "Must specify a tablename\n" unless $Record{-TABLE} ;
     die "Must specify a keyfield\n"  unless $Record{-KEYFIELD} ;
@@ -105,6 +144,7 @@ sub show_data {
 
     $Action = param( $ACTION )            || $Record{-INITIAL_ACTION} ;  
     $ID     = param( $Record{-KEYFIELD} ) || '' ; 
+    ( $ID ) = query_string() =~ /ID=([^&=]+)/o unless $ID ;
 
     for( my $i = 0 ; $i <= $#{$Record{-FIELDS}} ; $i++ ) {
         # Set any -DB_* defaults here.
@@ -140,7 +180,6 @@ sub show_data {
     &_quit ;
 }
 
-
 sub _quit {
     $DB_HANDLE->disconnect() ;
 }
@@ -154,10 +193,12 @@ sub _on_valid_form {
         $result = &_insert_record ; 
     }
     elsif( $Action eq $REMOVE and $ID ) {
+        my $quote = $Record{-FIELDS}[0]->{-DB_QUOTE} ? "'" : '' ;
         $result = &_execute_sql( 
-                    "DELETE FROM $Record{-TABLE} WHERE $Record{-KEYFIELD} = '$ID'",
-                    p( colour( $Record{-ACTION_COLOUR}, 
-                       "Record $ID deleted successfully" ) )
+                    "DELETE FROM $Record{-TABLE} WHERE $Record{-KEYFIELD} " .
+                    "= $quote$ID$quote",
+                    p( qq{<SPAN style="$Record{-ACTION_STYLE}"} . 
+                       "Record $ID deleted successfully</SPAN>" )
                     ) ;
     }
     elsif( $Action eq $UPDATE ) {
@@ -172,33 +213,31 @@ sub _on_valid_form {
     }
 }
 
-
 sub _execute_sql {
     my( $stmt, $result ) = @_ ;
 
     $result = p( "Executed:<BR>", 
-                 tt( colour( $Record{-SQL_COLOUR}, $stmt ) ) ) . $result 
+                 tt( qq{<SPAN="$Record{-SQL_STYLE}">$stmt</SPAN>} ) ) . $result 
     if $Record{-SHOW_SQL} ;
 
     $@ = undef ;
     eval {
         $DB_HANDLE->do( $stmt ) ; 
     } ;
-    $result = &_fail_form( "$@ <P>Executed:<BR>$stmt" ) if $@ ;
+    $result = &_fail_form( "$@ <P>Attempted:<BR>$stmt" ) if $@ ;
 
     $result ;
 }
 
-
 sub _fail_form {
     my $err = shift || $DBI::errstr ;
 
-    h3( colour( $Record{-FAIL_COLOUR}, "$Record{-TITLE} - Action Failed" ) ) .
-    p(  colour( $Record{-ERR_COLOUR}, $err ) ) .
+    h3( qq{<SPAN style="$Record{-FAIL_STYLE}">} .
+        qq{$Record{-TITLE} - Action Failed</SPAN>} ) .
+    p( qq{<SPAN style="$Record{-ERR_STYLE}">$err</SPAN>} ) .
     p( qq{<A HREF="$URL">$Record{-TITLE}</A>} )
     ;
 }
-
 
 sub _add_or_edit_record {
 
@@ -206,9 +245,11 @@ sub _add_or_edit_record {
     my @field  = @{$Record{-FIELDS}} ;
     CGI::delete( $ACTION ) ;
     CGI::delete( $ADD ) ;
+    CGI::delete( $QD_TABLENAME ) ;
     my $check  = 1 ;
     my $button = $ADD ;
-    my $add = $Action eq $ADD ? '' : qq{<A HREF="$URL?$ACTION=$ADD">$ADD</A> } ;
+    my $add = $Action eq $ADD ? '' : 
+            qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A> } ;
 
     if( param( $UPDATE ) or $Action eq $EDIT ) { 
         $button = $UPDATE ;
@@ -222,23 +263,26 @@ sub _add_or_edit_record {
     }
 
     my $delete = ( $ID and ( $Action ne $ADD ) ) ? 
-                    qq{<A HREF="$URL?$ACTION=$DELETE\&ID=$ID">$DELETE</A> } :
-                    '' ;
+                    qq{<A HREF="$URL?$ACTION=$DELETE\&ID=$ID\&} . #"
+                    qq{$QD_TABLENAME=$Record{-TABLE}">$DELETE</A> } : '' ; #"
 
     my $title = $Action eq $UPDATE ? $EDIT : $Action ;
     my $header = $Record{-HEADER} ;
     $header =~ s/<:ACTION:>/$title/go ;
 
+    push @field, 
+        { -name => $QD_TABLENAME, -TYPE => 'hidden', -value => $Record{-TABLE} } ;
+
     show_form(
         -LANGUAGE  => $Record{-LANGUAGE},
         -TITLE     => $Record{-TITLE},
-        -HEADER    => $header . $result .
+        -HEADER    => $header . $result . 
                       p( $add .  $delete .
-                        qq{<A HREF="$URL?$ACTION=$FIND">$FIND</A> } . 
-                        qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>} ),
+    qq{<A HREF="$URL?$ACTION=$FIND\&$QD_TABLENAME=$Record{-TABLE}">$FIND</A> } . 
+    qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>} ),
         -FOOTER    => p( $add .  $delete .
-                        qq{<A HREF="$URL?$ACTION=$FIND">$FIND</A> } . 
-                        qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>} ) .
+    qq{<A HREF="$URL?$ACTION=$FIND\&$QD_TABLENAME=$Record{-TABLE}">$FIND</A> } . 
+    qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>} ) .
                      $Record{-FOOTER},
         -ACCEPT    => \&_on_valid_form,
         -CHECK     => $check,
@@ -253,7 +297,6 @@ sub _add_or_edit_record {
         ) ;
 }
 
-
 sub _delete_record {
 
     my $header = $Record{-HEADER} ;
@@ -261,10 +304,11 @@ sub _delete_record {
 
     print
         $header,
-        p( qq{<A HREF="$URL?$ACTION=$EDIT\&ID=$ID">$EDIT</A>\&nbsp;\&nbsp;},
-        qq{<A HREF="$URL?$ACTION=$ADD">$ADD</A> } . 
-        qq{<A HREF="$URL?$ACTION=$FIND">$FIND</A> } . 
-        qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>} ),
+        p( qq{<A HREF="$URL?$ACTION=$EDIT\&ID=$ID\&"} . #"
+        qq{$QD_TABLENAME=$Record{-TABLE}">$EDIT</A>\&nbsp;\&nbsp;}, #"
+        qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A> } . 
+        qq{<A HREF="$URL?$ACTION=$FIND\&$QD_TABLENAME=$Record{-TABLE}">$FIND</A> } . 
+        qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>} ),
         qq{<TABLE BORDER="1" CELLSPACING="0">},
         qq{<TR BGCOLOR="$Record{-DEL_HEAD_COLOUR}">},
         th( 'Field' ), th( 'Value' ),
@@ -293,16 +337,17 @@ sub _delete_record {
 
     print
         "</TABLE>",
-        p( qq{<A HREF="$URL?$ACTION=$REMOVE\&ID=$ID">Confirm Delete</A>} 
-        . '&nbsp;&nbsp;' .
-        qq{<A HREF="$URL?$ACTION=$EDIT\&ID=$ID">$EDIT</A>} ),
-        p( qq{<A HREF="$URL?$ACTION=$ADD">$ADD</A> } . 
-        qq{<A HREF="$URL?$ACTION=$FIND">$FIND</A> } . 
-        qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>} ),
+        p( qq{<A HREF="$URL?$ACTION=$REMOVE\&ID=$ID\&} . #"
+        qq{$QD_TABLENAME=$Record{-TABLE}">Confirm Delete</A>} . #"
+        '&nbsp;&nbsp;' .
+        qq{<A HREF="$URL?$ACTION=$EDIT\&ID=$ID\&} . #"
+        qq{$QD_TABLENAME=$Record{-TABLE}">$EDIT</A>} ), #"
+        p( qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A> } . 
+        qq{<A HREF="$URL?$ACTION=$FIND\&$QD_TABLENAME=$Record{-TABLE}">$FIND</A> } . 
+        qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>} ),
         $Record{-FOOTER},
         ;
 }
-
 
 sub _find_records {
     my $result = shift || '' ;
@@ -318,12 +363,14 @@ sub _find_records {
     print
         $header,
         $result,
-        qq{<A HREF="$URL?$ACTION=$ADD">$ADD</A> }, 
-        qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>},
+        qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A> }, 
+        qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>},
         start_form,
         qq{<TABLE BORDER="0" CELLSPACING="0">},
         Tr( th( [ "Field", "\L\u$COMPARISON", "\L\u$VALUE", "\L\u$CONNECTOR" ] ) ),
         ;
+
+    param( $QD_TABLENAME, $Record{-TABLE} ) ;
    
     my @orderby ;
     my $i = -1 ;
@@ -360,12 +407,11 @@ sub _find_records {
             '-values' => \@orderby,
         ),
         "</TD><TD></TD></TR></TABLE>", 
-        submit( $SEARCH ), end_form, 
-        qq{<A HREF="$URL?$ACTION=$ADD">$ADD</A> } .
-        qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>},
+        submit( $SEARCH ), hidden( $QD_TABLENAME ), end_form, 
+        qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A> } .
+        qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>},
         $Record{-FOOTER} ;
 }
-
 
 sub _list_records {
     my $result = shift || '' ;
@@ -386,24 +432,28 @@ sub _list_records {
         # Some are bound to be undefined.
         $stmt .= join ", ", map { $_->{-DB_NAME} } @{$Record{-FIELDS}} ;
     }
-    chop $stmt ; chop $stmt ;
+    $stmt =~ s/[, ]+$//o ;
     $stmt .= " FROM $Record{-TABLE} " ;
     $stmt .= "WHERE $where "      if $where ;
     $stmt .= "ORDER BY $order_by" if $order_by ;
-    print p( "Executed:<BR>", tt( colour( $Record{-SQL_COLOUR}, $stmt ) ) ) 
+    print p( "Executed:<BR>", 
+        tt( qq{<SPAN style="$Record{-SQL_STYLE}">$stmt</SPAN>} ) ) 
     if $Record{-SHOW_SQL} ;
 
     print
         qq{<TABLE BORDER="1" CELLSPACING="0">},
         qq{<TR BGCOLOR="$Record{-LIST_HEAD_COLOUR}">},
-        qq{<TD ALIGN="CENTER"><A HREF="$URL?$ACTION=$ADD">$ADD</A></TD>},
-        qq{<TD ALIGN="CENTER"><A HREF="$URL?$ACTION=$FIND">$FIND</A></TD>},
-        th( [ map { qq{<A HREF="$URL?$ACTION=$LIST\&} . #"
-                    qq{$ORDERBY=} . uri_escape( $_ ) . 
-                    qq{\&$WHERE=} . uri_escape( $where, 
+        qq{<TD ALIGN="CENTER">},
+        qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A></TD>},
+        qq{<TD ALIGN="CENTER">},
+        qq{<A HREF="$URL?$ACTION=$FIND\&$QD_TABLENAME=$Record{-TABLE}">$FIND</A></TD>},
+        th( [ map { 
+                qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}\&} . #"
+                qq{$ORDERBY=} . uri_escape( $_ ) . 
+                qq{\&$WHERE=} . uri_escape( $where, 
                         q{\x00-\x20"'#%;=<>?{}|\\^~`\[\]\x7F-\xFF} ) . #"
-                    qq{">} . encode_entities( $_ ) . "</A>" #"
-                   } @label ] ),
+                qq{">} . encode_entities( $_ ) . "</A>" #"
+                } @label ] ),
         "</TR>",
         ;
 
@@ -423,9 +473,11 @@ sub _list_records {
             $colour = ( $colour eq $colour[0] ) ? $colour[1] : $colour[0] ;
             print
                 qq{<TD ALIGN="CENTER">},
-                qq{<A HREF="$URL?$ACTION=$EDIT\&ID=$id">$EDIT</A></TD>}, 
+                qq{<A HREF="$URL?$ACTION=$EDIT\&ID=$id\&} . #"
+                qq{$QD_TABLENAME=$Record{-TABLE}">$EDIT</A></TD>}, #"
                 qq{<TD ALIGN="CENTER">},
-                qq{<A HREF="$URL?$ACTION=$DELETE\&ID=$id">$DELETE</A></TD>} ;
+                qq{<A HREF="$URL?$ACTION=$DELETE\&ID=$id\&} . #"
+                qq{$QD_TABLENAME=$Record{-TABLE}">$DELETE</A></TD>} ; #"
             for( my $i = 0 ; $i < $#{$Record{-FIELDS}} ; $i++ ) {
                 my $field = $field[$i] ;
                 if( my $html = ${$Record{-FIELDS}}[$i]->{-DB_HTML} and $field ) {
@@ -443,24 +495,23 @@ sub _list_records {
             print "</TR>" ;
         }
         print '</TABLE>' ;
-        print p( colour( $Record{-ERR_COLOUR}, "No matches found" ) ) 
+        print p( qq{<SPAN style="$Record{-ERR_STYLE}">No matches found</SPAN>} ) 
         unless $matches ;
         $sth->finish() ;
     } ;
     if( $@ ) { 
-        print '</TABLE>' . &_fail_form( "$@ <P>Executed:<BR>$stmt" ) ;
+        print '</TABLE>' . &_fail_form( "$@ <P>Attempted:<BR>$stmt" ) ;
     }
     else {
         print '</TABLE>' ;
     }
     my $s = $matches == 1 ? '' : 's' ;
     print p( "$matches record$s\&nbsp;\&nbsp;" . 
-             qq{<A HREF="$URL?$ACTION=$ADD">$ADD</A> } .
-             qq{<A HREF="$URL?$ACTION=$FIND">$FIND</A> } .
-             qq{<A HREF="$URL?$ACTION=$LIST">$LIST</A>} 
+         qq{<A HREF="$URL?$ACTION=$ADD\&$QD_TABLENAME=$Record{-TABLE}">$ADD</A> } .
+         qq{<A HREF="$URL?$ACTION=$FIND\&$QD_TABLENAME=$Record{-TABLE}">$FIND</A> } .
+         qq{<A HREF="$URL?$ACTION=$LIST\&$QD_TABLENAME=$Record{-TABLE}">$LIST</A>} 
            ), $Record{-FOOTER} ;
 }
-
 
 sub _insert_record {
 
@@ -470,7 +521,7 @@ sub _insert_record {
         # Some are bound to be undefined.
         $stmt .= join ", ", map { $_->{-DB_NAME} } @{$Record{-FIELDS}} ;
     }
-    chop $stmt ; chop $stmt ;
+    $stmt =~ s/[, ]+$//o ;
     $stmt .= " ) VALUES ( " ;
     foreach my $fieldref ( @{$Record{-FIELDS}} ) {
         next if $fieldref->{-TYPE} and 
@@ -479,15 +530,15 @@ sub _insert_record {
         my $value = param( $fieldref->{-LABEL} ) ;
         $value =~ s/\n\r/ /go ;
         my $quote = $fieldref->{-DB_QUOTE} ? "'" : '' ;
+        $value = 'NULL' if not $value and not $quote ;
         $stmt .= "$quote$value$quote, " ;
     }
     substr( $stmt, -2, 2 ) = " )" ;
 
     &_execute_sql( $stmt,  
-                  p( colour( $Record{-ACTION_COLOUR}, 
-                             "Record $ID added successfully" ) ) ) ;
+                  p( qq{<SPAN style="$Record{-ACTION_STYLE}">} . 
+                     qq{Record $ID added successfully</SPAN>} ) ) ;
 }
-
 
 sub _update_record {
 
@@ -501,16 +552,17 @@ sub _update_record {
         my $value = param( $fieldref->{-LABEL} ) ;
         $value =~ s/\n\r/ /go ;
         my $quote = $fieldref->{-DB_QUOTE} ? "'" : '' ;
+        $value = 'NULL' if not $value and not $quote ;
         $stmt .= " $fieldref->{-DB_NAME} = $quote$value$quote, " ; 
     }
-    chop $stmt ; chop $stmt ;
-    $stmt .= " WHERE $Record{-KEYFIELD} = '$id'" ;
+    $stmt =~ s/[, ]+$//o ;
+    my $quote = $Record{-FIELDS}[0]->{-DB_QUOTE} ? "'" : '' ;
+    $stmt .= " WHERE $Record{-KEYFIELD} = $quote$id$quote" ;
     
     &_execute_sql( $stmt,
-                  p( colour( $Record{-ACTION_COLOUR}, 
-                             "Record $id updated successfully" ) ) ) ;
+                  p( qq{<SPAN style="$Record{-ACTION_STYLE}">} . 
+                     qq{Record $id updated successfully</SPAN>} ) ) ;
 }
-
 
 sub _retrieve_record {
 
@@ -520,11 +572,16 @@ sub _retrieve_record {
         # Some are bound to be undefined.
         $stmt .= join ", ", map { $_->{-DB_NAME} } @{$Record{-FIELDS}} ;
     } 
-    chop $stmt ; chop $stmt ;
-    $stmt .= " FROM $Record{-TABLE} WHERE $Record{-KEYFIELD} = '" .
-               param( &_fieldname2label( $Record{-KEYFIELD} ) ) . "'" ;
+    $stmt =~ s/[, ]+$//o ;
+    my $quote = $Record{-FIELDS}[0]->{-DB_QUOTE} ? "'" : '' ;
+    $stmt .= " FROM $Record{-TABLE} WHERE $Record{-KEYFIELD} = $quote" .
+               ( 
+                param( &_fieldname2label( $Record{-KEYFIELD} ) ) ||
+                param( $Record{-KEYFIELD} ) ||
+                param( 'ID' )
+               ) . "$quote" ;
     my $result ;
-    $result = p( "Executed:<BR>", colour( $Record{-SQL_COLOUR}, $stmt ) ) 
+    $result = p( qq{Executed:<BR><SPAN style="$Record{-SQL_STYLE}">$stmt</SPAN>} ) 
     if $Record{-SHOW_SQL} ;
 
     my @field ;
@@ -534,7 +591,7 @@ sub _retrieve_record {
         @field = $sth->fetchrow_array ; 
     } ;
     if( $@ ) {
-        $result .= &_fail_form( "$@ <P>Executed:<BR>$stmt" ) ; 
+        $result .= &_fail_form( "$@ <P>Attempted:<BR>$stmt" ) ; 
     }
     else {
         foreach my $label ( &_get_labels ) {
@@ -544,7 +601,6 @@ sub _retrieve_record {
 
     $result ;
 }
-
 
 sub _get_where {
 
@@ -580,7 +636,6 @@ sub _get_where {
     $where ;
 }
 
-
 sub _label2fieldname {
     my $label = shift ;
     my $fieldname ;
@@ -596,11 +651,9 @@ sub _label2fieldname {
     $fieldname ;
 }
 
-
 sub _fieldname2label {
     my $fieldname = shift ;
     my $label ;
-
 
     foreach my $fieldref ( @{$Record{-FIELDS}} ) {
         next unless ( defined $fieldref->{-LABEL} and 
@@ -611,7 +664,6 @@ sub _fieldname2label {
 
     $label ;
 }
-
 
 sub _render_field {
     my( $field, $html ) = @_ ;
@@ -658,12 +710,9 @@ sub _get_labels {
     @label ;
 }
 
-
 1 ;
 
-
 __END__
-
 
 =head1 NAME
 
@@ -673,7 +722,7 @@ CGI::QuickData - Perl module to provide quick CGI forms for database tables.
 
 NB This is alpha code - it is fully functional but I<not> feature-complete.
 
-There is no documentation - however a working example, C<example1> is provided
+There is no documentation - however two working examples are provided
 for the time being.
 
 =head1 DESCRIPTION
@@ -682,11 +731,14 @@ To follow. Very similar to QuickForm - builds upon it, but with more options.
 
 =head1 BUGS
 
-Incomplete.
+Incomplete. This may be a wrong direction which binds the user interface and
+the database interface too tightly together leading to an inflexible module.
+Basically it's useful for generically working with tables but has no provision
+for cross-table relationships.
 
 =head1 AUTHOR
 
-Mark Summerfield. I can be contacted as <summer@chest.ac.uk> -
+Mark Summerfield. I can be contacted as <summer@perlpress.com> -
 please include the word 'quickdata' in the subject line.
 
 =head1 COPYRIGHT

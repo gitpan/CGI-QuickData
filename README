@@ -6,7 +6,7 @@ CGI::QuickData - Perl module to provide quick CGI forms for database tables.
 
 NB This is alpha code - it is fully functional but I<not> feature-complete.
 
-There is no documentation - however a working example, C<example1> is provided
+There is no documentation - however two working examples are provided
 for the time being.
 
 =head1 DESCRIPTION
@@ -15,11 +15,14 @@ To follow. Very similar to QuickForm - builds upon it, but with more options.
 
 =head1 BUGS
 
-Incomplete.
+Incomplete. This may be a wrong direction which binds the user interface and
+the database interface too tightly together leading to an inflexible module.
+Basically it's useful for generically working with tables but has no provision
+for cross-table relationships.
 
 =head1 AUTHOR
 
-Mark Summerfield. I can be contacted as <summer@chest.ac.uk> -
+Mark Summerfield. I can be contacted as <summer@perlpress.com> -
 please include the word 'quickdata' in the subject line.
 
 =head1 COPYRIGHT

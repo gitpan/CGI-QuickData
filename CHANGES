@@ -1,3 +1,12 @@
+1999/11/28
+
+Have added a new example which provides generic access to a databases tables
+with minimal programer intervention. This module should be useful for generic
+access to tables, (in conjunction with example2), but is probably too narrow
+in scope to be acceptable for end-users. Nonetheless it could serve as a
+template for more application-specific programs.
+
+
 1999/11/04
 
 Corrected bug in WHERE clause handling when reordering the List view.

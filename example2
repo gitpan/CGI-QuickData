@@ -1,0 +1,157 @@
+#!/usr/bin/perl -Tw
+
+# $Id: contractor,v 1.1 1999/11/28 15:44:15 root Exp root $
+
+# Copyright (c) Mark Summerfield 1999. All Rights Reserved.
+# May be used/distributed under the GPL.
+
+use strict ;
+
+use CGI qw( :standard :html3 ) ;
+use CGI::QuickData ;
+
+use vars qw( $VERSION ) ;
+$VERSION    = '1.00' ;
+
+
+############################# THIS IS DATABASE SPECIFIC ######################
+
+# The connect string must be in code, not passed via 'hidden' fields since it
+# could contain username/password.
+my $Path     = '/root/web/db/contractor' ;
+my $Connect  = "DBI:XBase:$Path" ;
+
+# If you use a different database you will need to replace &define_fields and
+# its hard-coded path, (probably with something a lot more sophisticated :-)
+
+############################# END OF DATABASE SPECIFIC #######################
+
+
+$DB_HANDLE = DBI->connect( $Connect ) or die $DBI::errstr ;
+my %Keyfield ;
+my %Table ; # A hash of tables, each containing an array of fields.
+&define_fields ; 
+
+my( $tablename ) = query_string() =~ /\Q$QD_TABLENAME\E=([^\&=]+)/o ;
+$tablename       = param( $QD_TABLENAME ) unless $tablename ;
+
+
+if( not defined $tablename ) {
+    show_tables(
+        -TITLE       => 'Contractor Tables',
+        -TABLENAMES  => [ $DB_HANDLE->tables ],
+        -TABLEFIELDS => \%Table,
+        -LISTFIELDS  => 0,
+        ) ;
+}
+else {
+    param( $QD_TABLENAME, $tablename ) ;
+
+    show_data(
+        -SHOW_SQL        => 0,
+        -HEADER          => header . 
+                            start_html( 
+                                 '-title' => 'Contractor',
+                                 -BGCOLOR => '#FFCAFF',
+                                 ) .
+                            h3( "Contractor - <:ACTION:> $tablename" ),
+        -FOOTER          => qq{ <A HREF="} . url() . qq{">Contractor Tables</A>} . 
+                            hr . end_html,
+        -INITIAL_ACTION  => 'list',
+        -TITLE           => "Contractor - $tablename",
+        -TABLE           => $tablename,
+        -KEYFIELD        => $Keyfield{$tablename},
+        -INITIAL_ORDERBY => $Keyfield{$tablename},
+        -SIZE            => 25,
+        -MAXLEN          => 40,
+        -ROWS            =>  3,
+        -COLUMNS         => 40,
+        -FIELDS          => $Table{$tablename},
+    ) ;
+}
+
+# define_fields
+#
+# This reads a file with the following format:
+# tablename field1[type1] ... fieldN[typeN]
+# See after __END__ for an example 
+# Where a type isn't given it is assumed to be char(40).
+#
+# We include the most rudimentary validation - certainly not suitable for
+# production use.
+#
+sub define_fields {
+    my $file = '/root/web/db/contractor/contractor.tables' ;
+
+    open INPUT, $file or die "Failed to open $file: $!\n" ;
+    while( <INPUT> ) {
+        next if /^\w*$/ or /^(?:=|#)/ ; 
+        chomp ;
+        my( $tablename, @field ) = split ' ' ;
+        {
+            foreach my $field ( @field ) {
+                my( $name, $type ) = $field =~ /^"?([^["]+)(?:\[([^]"]+)\])?"?$/o ;
+                $type ||= "char(40)" ;
+                my $numeric = $type =~ /^(?:int|float|num)/o ;
+                $Keyfield{$tablename} = $name unless $Keyfield{$tablename} ;
+                my $required = 1 if $Keyfield{$tablename} eq $name or
+                                    $name =~ /_[iI][dD]$/o or
+                                    $name =~ /^[kK][eE][yY]/o ;
+                my $phone = 
+                    $name =~ /^(?:mobile|tel|phone|switchboard|directline|fax)/o ;
+                push @{$Table{$tablename}}, {
+                    -DB_NAME   => $name,
+                    -DB_QUOTE  => $numeric ? 0 : 1,
+                    -DB_ALIGN  => $numeric ? 'RIGHT' : 'LEFT', 
+                    -LABEL     => "\L\u$name",
+                    -VALIDATE  => $phone ? \&valid_phone : undef,
+                    -REQUIRED  => $required,
+                    } ;
+            }
+        }
+    }
+    close INPUT ;
+}
+
+
+sub valid_phone { 
+    local $_ = shift ; 
+
+    # This is not a real phone no. validation routine. 
+    ( ( ( $_ eq '' ) or ( /^[-+() \d]*$/o ) ? 1 : 0 ), 
+      "<I>Only digits, `(', `)', `+' and `-' allowed.</I>" ) ;
+}
+
+__END__
+
+=pod
+
+Data for the sample database. Should be in its own file:
+
+
+# Create the contractor tables
+
+customer customer_id[integer] name 
+
+customer2project customer_id[integer] project_id[integer] 
+
+project project_id[integer] name 
+
+project2contact project_id[integer] contact_id[integer] 
+
+contact contact_id[integer] forename surname directline[char(20)] mobile[char(20)] email address[char(80)] postcode[char(10)] country[char(20)] switchboard[char(20)] fax[char(20)] url 
+
+# Duration is counted in seconds
+activity action_id[integer] project_id[integer] rate_id[integer] start[date] finish[date] duration[integer] notes[char(255)]
+
+action action_id[integer] name 
+
+rate rate_id[integer] name 
+
+# Due is counted in UK pennies
+invoice invoice_id[integer] customer_id[integer] project_id[integer] due[integer] raised[date] paid[date] 
+
+# Duration is counted in seconds
+invoice_item invoice_id[integer] action_id[integer] rate_id[integer] duration[integer]
+
+=cut
